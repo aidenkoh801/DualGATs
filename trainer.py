@@ -27,7 +27,7 @@ def train_or_eval_model(model, loss_function, dataloader, device, args, optimize
         semantic_adj = semantic_adj.to(device)
         structure_adj = structure_adj.to(device)
 
-        log_prob, diff_loss = model(utterance_features, semantic_adj,structure_adj) # (B, N, C)
+        log_prob, diff_loss = model(utterance_features,semantic_adj,structure_adj) # (B, N, C)
 
         loss = loss_function(log_prob.permute(0,2,1), label)
 
@@ -59,7 +59,7 @@ def train_or_eval_model(model, loss_function, dataloader, device, args, optimize
     avg_loss = round(np.sum(losses) / len(losses), 4)
     avg_accuracy = round(accuracy_score(new_labels, new_preds) * 100, 2)
 
-    if args.dataset_name in ['IEMOCAP', 'MELD', 'EmoryNLP_small', 'EmoryNLP_big']:
+    if args.dataset_name in ['IEMOCAP', 'MELD', 'EmoryNLP_small', 'EmoryNLP_big','custom']:
         avg_fscore = round(f1_score(new_labels, new_preds, average='weighted') * 100, 2)
     elif args.dataset_name == 'DailyDialog':
         avg_fscore = round(f1_score(new_labels, new_preds, average='micro', labels=[0,2,3,4,5,6]) * 100, 2) #1 is neutral

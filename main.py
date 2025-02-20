@@ -58,6 +58,14 @@ if __name__ == '__main__':
 
     parser.add_argument('--seed', type=int, default=100, help='random seed') ##
 
+    parser.add_argument('--transformer_heads', type=int, default=4, help='Transformer encoder heads') 
+    parser.add_argument('--transformer_layers', type=int, default=2, help='Transformer encoder layers')
+
+    parser.add_argument('--weight_decay', type=float, default=0.01, 
+                    help='Weight decay for AdamW optimizer.')
+
+
+
 
     args = parser.parse_args()
 
@@ -83,9 +91,9 @@ if __name__ == '__main__':
     else:
         n_classes = 7
 
+    # Change this line:
     print('building model..')
-    
-    model = DualGATs(args, n_classes)
+    model = TripleGATs(args, n_classes)  # Changed from DualGATs
  
     if torch.cuda.device_count() > 1:
         print('Multi-GPU...........')
@@ -97,7 +105,12 @@ if __name__ == '__main__':
     loss_function = nn.CrossEntropyLoss(ignore_index=-1) # 忽略掉label=-1 的类
     
 
-    optimizer = AdamW(model.parameters(), lr=args.lr)
+    #optimizer = AdamW(model.parameters(), lr=args.lr)
+    optimizer = AdamW(
+        model.parameters(),
+        lr=args.lr,
+        weight_decay=args.weight_decay  # <--- This is where it's added
+    )
 
     best_fscore, best_acc, best_loss, best_label, best_pred, best_mask = None, None, None, None, None, None
     all_fscore, all_acc, all_loss = [], [], []

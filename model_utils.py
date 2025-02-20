@@ -1,18 +1,20 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import apex
+#import apex
+
+# def LayerNorm(normalized_shape, eps=1e-5, elementwise_affine=True):
+#     if torch.cuda.is_available():
+#         try:
+#             from apex.normalization import FusedLayerNorm
+
+#             return FusedLayerNorm(normalized_shape, eps, elementwise_affine)
+#         except ImportError:
+#             pass
+#     return torch.nn.LayerNorm(normalized_shape, eps, elementwise_affine)
 
 def LayerNorm(normalized_shape, eps=1e-5, elementwise_affine=True):
-    if torch.cuda.is_available():
-        try:
-            from apex.normalization import FusedLayerNorm
-
-            return FusedLayerNorm(normalized_shape, eps, elementwise_affine)
-        except ImportError:
-            pass
     return torch.nn.LayerNorm(normalized_shape, eps, elementwise_affine)
-
 
 class DiffLoss(nn.Module):
 
@@ -25,8 +27,11 @@ class DiffLoss(nn.Module):
 
         batch_size = input1.size(0)
         N = input1.size(1)
-        input1 = input1.view(batch_size, -1)  # (B,N*D)
-        input2 = input2.view(batch_size, -1)  # (B, N*D)
+        # input1 = input1.view(batch_size, -1)  # (B,N*D)
+        # input2 = input2.view(batch_size, -1)  # (B, N*D)
+
+        input1 = input1.reshape(batch_size, -1)  # (B,N*D)
+        input2 = input2.reshape(batch_size, -1)  # (B, N*D)
 
         # Zero mean
         input1_mean = torch.mean(input1, dim=0, keepdims=True) # (1,N*D)

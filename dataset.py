@@ -21,32 +21,37 @@ class MyDataset(Dataset):
         self.dataset_name = dataset_name
 
 
-        if dataset_name == 'IEMOCAP':
-            self.videoSpeakers, self.videoLabels, roberta_feature, \
-            self.links, self.relations, self.videoSentence, self.trainVid, self.testVid, self.validVid = read_pickle('./data/IEMOCAP_Features.pkl')
+        if dataset_name == "custom":
+            processed_data = torch.load('processed_dataset.pt')
+            # Organize data into dictionaries keyed by dialogue id
 
-            self.utterance_feature = roberta_feature
-       
-        elif dataset_name == 'MELD':
-            self.videoSpeakers, self.videoLabels,  roberta_feature, \
-            self.links, self.relations, self.videoSentence, self.trainVid, self.testVid, self.validVid = read_pickle('./data/MELD_Features.pkl')
+            self.videoSpeakers = {}
+            self.videoLabels = {}
+            self.utterance_feature = {}
+            self.links = {}
+            self.relations = {}
+            self.videoSentence = {}
 
-            self.utterance_feature = roberta_feature
-    
-        elif dataset_name == 'DailyDialog':
-            self.videoSpeakers, self.videoLabels, roberta_feature, \
-            self.links, self.relations, self.videoSentence, self.trainVid, self.testVid, self.validVid = read_pickle(
-                    './data/DailyDialog_Features.pkl')
-
-            self.utterance_feature = roberta_feature
-          
-        elif dataset_name == 'EmoryNLP':
-            self.videoSpeakers, self.videoLabels, roberta_feature, \
-                self.links, self.relations, self.videoSentence, self.trainVid, self.testVid, self.validVid = read_pickle(
-                    './data/EmoryNLP_Features.pkl')
-
-            self.utterance_feature = roberta_feature
-
+        for dlg in processed_data:
+            dlg_id = dlg['id']
+            self.videoSpeakers[dlg_id] = dlg['speakers']
+            self.videoLabels[dlg_id] = dlg['labels']
+            self.utterance_feature[dlg_id] = dlg['utterance_features']
+            self.links[dlg_id] = dlg['utterance_links']
+            self.relations[dlg_id] = dlg['utterance_relations']
+            #self.videoSentence[dlg_id] = [u['text'] for u in dlg['utterances']]
+            self.videoSentence[dlg_id] = dlg['utterances']
+        
+            # Generate splits (simple example splitting)
+            all_dialogs = list(self.utterance_feature.keys())
+            random.Random(42).shuffle(all_dialogs)
+            n = len(all_dialogs)
+            train_idx = int(0.8 * n)
+            valid_idx = int(0.9 * n)
+            self.trainVid = all_dialogs[:train_idx]
+            self.validVid = all_dialogs[train_idx:valid_idx]
+            self.testVid = all_dialogs[valid_idx:]
+        
           
 
         self.data = self.read(split)
@@ -67,30 +72,14 @@ class MyDataset(Dataset):
 
         dialogs = []
         for dialog_id in dialog_ids:
-            utterances = self.videoSentence[dialog_id]
-            labels = self.videoLabels[dialog_id]
-            if self.dataset_name == 'IEMOCAP':
-                speakers = self.videoSpeakers[dialog_id]
-            elif self.dataset_name == 'MELD':
-                speakers = [speaker.index(1) for speaker in self.videoSpeakers[dialog_id]]
-            elif self.dataset_name == 'DailyDialog':
-                speakers = [int(speaker) for speaker in self.videoSpeakers[dialog_id]]
-            elif self.dataset_name == 'EmoryNLP_small' or 'EmoryNLP_big':
-                speakers = self.videoSpeakers[dialog_id]
-            
-
-            utterance_features = [item.tolist() for item in self.utterance_feature[dialog_id]]
-            utterance_links = self.links[dialog_id]
-            utterance_relations = self.relations[dialog_id]
-
             dialogs.append({
-                'id':dialog_id,
-                'utterances': utterances,
-                'labels': labels,
-                'speakers': speakers,
-                'utterance_features': utterance_features,
-                'utterance_links': utterance_links,
-                'utterance_relations': utterance_relations
+                'id': dialog_id,
+                'utterances': self.videoSentence[dialog_id],  # Already stored
+                'labels': self.videoLabels[dialog_id],        # From videoLabels
+                'speakers': self.videoSpeakers[dialog_id],    # From videoSpeakers
+                'utterance_features': [tensor.tolist() for tensor in self.utterance_feature[dialog_id]],
+                'utterance_links': self.links[dialog_id],
+                'utterance_relations': self.relations[dialog_id]
             })
 
 
@@ -150,7 +139,6 @@ class MyDataset(Dataset):
         map_relations = {'Comment': 0, 'Contrast': 1, 'Correction': 2, 'Question-answer_pair': 3, 'QAP': 3, 'Parallel': 4, 'Acknowledgement': 5,
                      'Elaboration': 6, 'Clarification_question': 7, 'Conditional': 8, 'Continuation': 9, 'Result': 10, 'Explanation': 11,
                      'Q-Elab': 12, 'Alternation': 13, 'Narration': 14, 'Background': 15}
-
         '''
         structure_adj = []
 
