@@ -1,0 +1,3 @@
+.env
+/venv-cuda
+/__pycache__

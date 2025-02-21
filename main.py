@@ -64,6 +64,11 @@ if __name__ == '__main__':
     parser.add_argument('--weight_decay', type=float, default=0.01, 
                     help='Weight decay for AdamW optimizer.')
 
+    parser.add_argument('--use_transformer', type=str2bool, default=True, 
+                    help='Whether to use transformer module (ablation)')
+
+    parser.add_argument('--use_cross_attention', type=str2bool, default=True,
+                    help='Whether to use cross-attention between modules')
 
 
 
@@ -116,36 +121,58 @@ if __name__ == '__main__':
     all_fscore, all_acc, all_loss = [], [], []
     best_acc = 0.
     best_fscore = 0.
-
+    
+    all_metrics = []  # Stores [valid_fscore, test_acc, test_fscore, test_loss]
+    
     best_model = None
-    for e in range(n_epochs):  # 遍历每个epoch
+    for e in range(n_epochs):
         start_time = time.time()
 
+        # Training phase
         train_loss, train_acc, _, _, train_fscore = train_or_eval_model(model, loss_function,
                                                                         train_loader, device,
                                                                         args, optimizer, True)
+        # Validation phase
         valid_loss, valid_acc, _, _, valid_fscore = train_or_eval_model(model, loss_function,
                                                                         valid_loader, device, args)
+        # Test phase
         test_loss, test_acc, test_label, test_pred, test_fscore = train_or_eval_model(model, loss_function,
                                                                                       test_loader, device, args)
 
-        all_fscore.append([valid_fscore, test_fscore])
+        # Store all metrics
+        all_metrics.append([valid_fscore, test_acc, test_fscore, test_loss])
 
         print(
-            'Epoch: {}, train_loss: {}, train_acc: {}, train_fscore: {}, valid_loss: {}, valid_acc: {}, valid_fscore: {}, test_loss: {}, test_acc: {}, test_fscore: {}, time: {} sec'. \
-            format(e + 1, train_loss, train_acc, train_fscore, valid_loss, valid_acc, valid_fscore, test_loss,
-                   test_acc,
-                   test_fscore, round(time.time() - start_time, 2)))
+            'Epoch: {}, train_loss: {}, train_acc: {}, train_fscore: {}, valid_loss: {}, valid_acc: {}, valid_fscore: {}, test_loss: {}, test_acc: {}, test_fscore: {}, time: {} sec'.format(
+                e + 1, 
+                train_loss, train_acc, train_fscore,
+                valid_loss, valid_acc, valid_fscore,
+                test_loss, test_acc, test_fscore,
+                round(time.time() - start_time, 2)
+            ))
 
-        e += 1
+    print('\nfinish training!')
 
+    # Sort by validation fscore (first element) descending
+    all_metrics.sort(key=lambda x: x[0], reverse=True)
 
-    print('finish training!')
-
-
-    all_fscore = sorted(all_fscore, key=lambda x: (x[0], x[1]), reverse=True)  # 优先按照验证集 f1 进行排序
-
-    print('Best val F-Score:{}'.format(all_fscore[0][0]))  # 验证集最好性能 
-    print('Best test F-Score based on validation:{}'.format(all_fscore[0][1]))  # 验证集取得最好性能时 对应测试集的下性能
-    print('Best test F-Score based on test:{}'.format(max([f[1] for f in all_fscore])))  # 测试集 最好的性能
+    # Best based on validation
+    best_val_fscore, best_test_acc, best_test_fscore, best_test_loss = all_metrics[0]
+    
+    # Best overall test performance
+    all_test_acc = [m[1] for m in all_metrics]
+    all_test_fscore = [m[2] for m in all_metrics]
+    all_test_loss = [m[3] for m in all_metrics]
+    
+    print('\n=== Final Results ===')
+    print(f'Best Validation F1: {best_val_fscore:.2f}')
+    print(f'Corresponding Test Metrics:')
+    print(f' - Accuracy: {best_test_acc:.2f}%')
+    print(f' - F1 Score: {best_test_fscore:.2f}%')
+    print(f' - Loss: {best_test_loss:.4f}')
+    
+    print('\nBest Overall Test Performance:')
+    print(f' - Max Accuracy: {max(all_test_acc):.2f}%')
+    print(f' - Max F1 Score: {max(all_test_fscore):.2f}%')
+    print(f' - Min Loss: {min(all_test_loss):.4f}')
 

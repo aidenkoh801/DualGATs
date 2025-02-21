@@ -11,24 +11,27 @@ class TripleGATs(nn.Module):
         super().__init__()
         self.args = args
         
+        # Add transformer control
+        self.use_transformer = args.use_transformer
+        self.use_cross_attention = args.use_cross_attention
+
         self.fc1 = nn.Linear(args.emb_dim, args.hidden_dim)
 
-        # Add Transformer Module
-        self.TransformerLayers = nn.ModuleList([
-            nn.TransformerEncoderLayer(
-                d_model=args.hidden_dim,
-                nhead=args.transformer_heads,
-                dim_feedforward=args.hidden_dim*4,
-                dropout=args.dropout
-            ) for _ in range(args.gnn_layers)
-        ])
-        
-        # Add positional encoding
-        self.pos_encoder = PositionalEncoding(
-            args.hidden_dim,
-            args.dropout,
-            max_len=1000  # Adjust based on max utterance length
-        )
+        # Conditional Transformer Initialization
+        if self.use_transformer:
+            self.TransformerLayers = nn.ModuleList([
+                nn.TransformerEncoderLayer(
+                    d_model=args.hidden_dim,
+                    nhead=args.transformer_heads,
+                    dim_feedforward=args.hidden_dim*4,
+                    dropout=args.dropout
+                ) for _ in range(args.gnn_layers)
+            ])
+            self.pos_encoder = PositionalEncoding(
+                args.hidden_dim,
+                args.dropout,
+                max_len=1000
+            )
 
 
         SpkGAT = []
@@ -57,7 +60,10 @@ class TripleGATs(nn.Module):
 
         #in_dim = args.hidden_dim *2 + args.emb_dim
         # Update input dimension: 3*hidden_dim + emb_dim
-        in_dim = args.hidden_dim *3 + args.emb_dim  
+        if self.use_transformer:
+            in_dim = args.hidden_dim *3 + args.emb_dim  
+        else:
+            in_dim = args.hidden_dim *2 + args.emb_dim
         # output mlp layers
         layers = [nn.Linear(in_dim, args.hidden_dim), nn.ReLU()]
         for _ in range(args.mlp_layers - 1):
@@ -111,72 +117,149 @@ class TripleGATs(nn.Module):
     #     logits = self.out_mlp(H)
     #     return logits, self.beta * (diff_loss/self.args.gnn_layers)
 
+    # def forward(self, utterance_features, semantic_adj, structure_adj):
+    #     batch_size, seq_len = utterance_features.size(0), utterance_features.size(1)
+        
+        
+    #     H0 = F.relu(self.fc1(utterance_features)) # linear layer to reduce RoBERTa's emb_dim to hidden_dim
+    #     H0 = self.pos_encoder(H0) # Add positional encoding
+    #     H = [H0]
+    #     diff_loss = 0
+
+    #     for l in range(self.args.gnn_layers):
+    #         if l == 0:
+    #             H_s = self.SpkGAT[l](H[-1], semantic_adj)
+    #             H_d = self.DisGAT[l](H[-1], structure_adj)
+    #             H_t = self.TransformerLayers[l](H[-1].permute(1,0,2)).permute(1,0,2)
+    #         else:
+    #             H_s = self.SpkGAT[l](H_s_n, semantic_adj)
+    #             H_d = self.DisGAT[l](H_d_n, structure_adj)
+    #             H_t = self.TransformerLayers[l](H_t_n.permute(1,0,2)).permute(1,0,2)
+
+    #         # Update diff loss for three pairs
+    #         diff_loss += (
+    #             self.diff_loss(H_s, H_d) + 
+    #             self.diff_loss(H_s, H_t) + 
+    #             self.diff_loss(H_d, H_t)
+    #         )
+
+    #         # Cross attention between all three components
+    #         # 1. Spk <-> Dis
+    #         A_sd = F.softmax(torch.bmm(torch.matmul(H_s, self.affine1), 
+    #                                  H_d.transpose(1,2)), dim=-1)
+    #         A_ds = F.softmax(torch.bmm(torch.matmul(H_d, self.affine2),
+    #                                  H_s.transpose(1,2)), dim=-1)
+            
+    #         # 2. Add Transformer cross-attention
+    #         A_st = F.softmax(torch.bmm(torch.matmul(H_s, self.affine3),
+    #                                  H_t.transpose(1,2)), dim=-1)
+    #         A_ts = F.softmax(torch.bmm(torch.matmul(H_t, self.affine4),
+    #                                  H_s.transpose(1,2)), dim=-1)
+            
+    #         # 3. Transform cross-attention
+    #         A_dt = F.softmax(torch.bmm(torch.matmul(H_d, self.affine3),
+    #                                  H_t.transpose(1,2)), dim=-1)
+    #         A_td = F.softmax(torch.bmm(torch.matmul(H_t, self.affine4),
+    #                                  H_d.transpose(1,2)), dim=-1)
+            
+    #         # Update representations
+    #         H_s_n = (torch.bmm(A_sd, H_d) + torch.bmm(A_st, H_t)) / 2
+    #         H_d_n = (torch.bmm(A_ds, H_s) + torch.bmm(A_dt, H_t)) / 2
+    #         H_t_n = (torch.bmm(A_ts, H_s) + torch.bmm(A_td, H_d)) / 2
+
+    #         # Store outputs
+    #         H.append(self.drop(H_s_n))
+    #         H.append(self.drop(H_d_n)) 
+    #         H.append(self.drop(H_t_n))
+
+    #     # Final concatenation: last layer outputs + original features
+    #     H = torch.cat([
+    #         H[-3],  # Last spk
+    #         H[-2],  # Last dis
+    #         H[-1],  # Last transformer
+    #         utterance_features
+    #     ], dim=2)
+        
+    #     logits = self.out_mlp(H)
+    #     return logits, self.beta * (diff_loss/self.args.gnn_layers)
+
     def forward(self, utterance_features, semantic_adj, structure_adj):
         batch_size, seq_len = utterance_features.size(0), utterance_features.size(1)
         
-        
-        H0 = F.relu(self.fc1(utterance_features)) # linear layer to reduce RoBERTa's emb_dim to hidden_dim
-        H0 = self.pos_encoder(H0) # Add positional encoding
+        # Initial projection and positional encoding
+        H0 = F.relu(self.fc1(utterance_features))
+        if self.use_transformer:
+            H0 = self.pos_encoder(H0)
         H = [H0]
         diff_loss = 0
 
         for l in range(self.args.gnn_layers):
+            # Compute module outputs
             if l == 0:
                 H_s = self.SpkGAT[l](H[-1], semantic_adj)
                 H_d = self.DisGAT[l](H[-1], structure_adj)
-                H_t = self.TransformerLayers[l](H[-1].permute(1,0,2)).permute(1,0,2)
+                H_t = self.TransformerLayers[l](H[-1].permute(1,0,2)).permute(1,0,2) if self.use_transformer else torch.zeros_like(H[-1])
             else:
                 H_s = self.SpkGAT[l](H_s_n, semantic_adj)
                 H_d = self.DisGAT[l](H_d_n, structure_adj)
-                H_t = self.TransformerLayers[l](H_t_n.permute(1,0,2)).permute(1,0,2)
+                H_t = self.TransformerLayers[l](H_t_n.permute(1,0,2)).permute(1,0,2) if self.use_transformer else torch.zeros_like(H[-1])
 
-            # Update diff loss for three pairs
-            diff_loss += (
-                self.diff_loss(H_s, H_d) + 
-                self.diff_loss(H_s, H_t) + 
-                self.diff_loss(H_d, H_t)
-            )
+            # Calculate differential loss
+            current_diff = self.diff_loss(H_s, H_d)
+            if self.use_transformer:
+                current_diff += self.diff_loss(H_s, H_t) + self.diff_loss(H_d, H_t)
+            diff_loss += current_diff
 
-            # Cross attention between all three components
-            # 1. Spk <-> Dis
-            A_sd = F.softmax(torch.bmm(torch.matmul(H_s, self.affine1), 
-                                     H_d.transpose(1,2)), dim=-1)
-            A_ds = F.softmax(torch.bmm(torch.matmul(H_d, self.affine2),
-                                     H_s.transpose(1,2)), dim=-1)
-            
-            # 2. Add Transformer cross-attention
-            A_st = F.softmax(torch.bmm(torch.matmul(H_s, self.affine3),
-                                     H_t.transpose(1,2)), dim=-1)
-            A_ts = F.softmax(torch.bmm(torch.matmul(H_t, self.affine4),
-                                     H_s.transpose(1,2)), dim=-1)
-            
-            # 3. Transform cross-attention
-            A_dt = F.softmax(torch.bmm(torch.matmul(H_d, self.affine3),
-                                     H_t.transpose(1,2)), dim=-1)
-            A_td = F.softmax(torch.bmm(torch.matmul(H_t, self.affine4),
-                                     H_d.transpose(1,2)), dim=-1)
-            
-            # Update representations
-            H_s_n = (torch.bmm(A_sd, H_d) + torch.bmm(A_st, H_t)) / 2
-            H_d_n = (torch.bmm(A_ds, H_s) + torch.bmm(A_dt, H_t)) / 2
-            H_t_n = (torch.bmm(A_ts, H_s) + torch.bmm(A_td, H_d)) / 2
+            # Cross-module attention
+            if self.use_cross_attention:
+                # Spk-Dis interaction
+                A_sd = F.softmax(torch.bmm(torch.matmul(H_s, self.affine1), H_d.transpose(1,2)), dim=-1)
+                A_ds = F.softmax(torch.bmm(torch.matmul(H_d, self.affine2), H_s.transpose(1,2)), dim=-1)
+                
+                H_s_new = torch.bmm(A_sd, H_d)
+                H_d_new = torch.bmm(A_ds, H_s)
 
+                # Transformer interactions
+                if self.use_transformer:
+                    A_st = F.softmax(torch.bmm(torch.matmul(H_s, self.affine3), H_t.transpose(1,2)), dim=-1)
+                    A_ts = F.softmax(torch.bmm(torch.matmul(H_t, self.affine4), H_s.transpose(1,2)), dim=-1)
+                    A_dt = F.softmax(torch.bmm(torch.matmul(H_d, self.affine3), H_t.transpose(1,2)), dim=-1)
+                    A_td = F.softmax(torch.bmm(torch.matmul(H_t, self.affine4), H_d.transpose(1,2)), dim=-1)
+                    
+                    H_s_new = (H_s_new + torch.bmm(A_st, H_t)) / 2
+                    H_d_new = (H_d_new + torch.bmm(A_dt, H_t)) / 2
+                    H_t_new = (torch.bmm(A_ts, H_s) + torch.bmm(A_td, H_d)) / 2
+                else:
+                    H_t_new = torch.zeros_like(H_t)
+            else:
+                # Bypass cross-attention
+                H_s_new = H_s
+                H_d_new = H_d
+                H_t_new = H_t if self.use_transformer else torch.zeros_like(H_t)
+
+            # Prepare for next layer
+            H_s_n, H_d_n, H_t_n = H_s_new, H_d_new, H_t_new
+            
             # Store outputs
             H.append(self.drop(H_s_n))
-            H.append(self.drop(H_d_n)) 
+            H.append(self.drop(H_d_n))
             H.append(self.drop(H_t_n))
 
-        # Final concatenation: last layer outputs + original features
-        H = torch.cat([
-            H[-3],  # Last spk
-            H[-2],  # Last dis
-            H[-1],  # Last transformer
+        # Final concatenation
+        concat_layers = [
+            H[-3],  # Last Spk
+            H[-2],  # Last Dis
             utterance_features
-        ], dim=2)
+        ]
+        if self.use_transformer:
+            concat_layers.insert(2, H[-1])  # Insert Transformer output
         
+        H = torch.cat(concat_layers, dim=2)
         logits = self.out_mlp(H)
+        
         return logits, self.beta * (diff_loss/self.args.gnn_layers)
 
+    
 # Add positional encoding module
 class PositionalEncoding(nn.Module):
     def __init__(self, d_model, dropout=0.1, max_len=5000):
